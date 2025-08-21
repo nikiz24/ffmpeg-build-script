@@ -21,6 +21,12 @@ LATEST=false
 MANPAGES=1
 CURRENT_PACKAGE_VERSION=0
 
+# Git branch and patch support
+GIT_BRANCH="${GIT_BRANCH:-main}"
+PATCH_CLONE_URL="${PATCH_CLONE_URL:-}"
+FFMPEG_GIT_URL="${FFMPEG_GIT_URL:-https://github.com/FFmpeg/FFmpeg.git}"
+FFMPEG_GIT_BRANCH="${FFMPEG_GIT_BRANCH:-release/7.1}"
+
 
 command_exists() {
   if ! [[ -x $(command -v "$1") ]]; then
@@ -215,6 +221,14 @@ verify_binary_type() {
     echo "Successfully built binary for ${OSTYPE}: ${BINARY_TYPE}"
     ;;
   esac
+  
+  # Display FFmpeg version and commit info
+  echo ""
+  echo "FFmpeg version information:"
+  "$WORKSPACE/bin/ffmpeg" -version | head -n 1
+  echo "Built from commit: $FFMPEG_COMMIT"
+  echo "Git branch: $FFMPEG_GIT_BRANCH"
+  echo "Build system version: $FFMPEG_VERSION"
 }
 
 cleanup() {
@@ -1091,7 +1105,62 @@ if [ -d "$CWD/.git" ]; then
 fi
 
 build "ffmpeg" "$FFMPEG_VERSION"
-download "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n$FFMPEG_VERSION.tar.gz" "FFmpeg-release-$FFMPEG_VERSION.tar.gz"
+
+# Clone FFmpeg from git repository
+if [[ -d "$PACKAGES/ffmpeg" ]]; then
+    echo "FFmpeg repository already exists, updating..."
+    cd "$PACKAGES/ffmpeg" || exit
+    git fetch origin
+    git checkout "$FFMPEG_GIT_BRANCH"
+    git pull origin "$FFMPEG_GIT_BRANCH"
+else
+    echo "Cloning FFmpeg from $FFMPEG_GIT_URL, branch: $FFMPEG_GIT_BRANCH"
+    git clone --filter=blob:none --branch="$FFMPEG_GIT_BRANCH" "$FFMPEG_GIT_URL" "$PACKAGES/ffmpeg"
+    cd "$PACKAGES/ffmpeg" || exit
+fi
+
+# Get current commit hash for version info
+FFMPEG_COMMIT=$(git rev-parse --short HEAD)
+echo "Building FFmpeg from commit: $FFMPEG_COMMIT"
+
+# Get FFmpeg version from build system
+if [[ -f "./ffbuild/ffmpeg/ffbuild/version.sh" ]]; then
+    FFMPEG_VERSION=$(./ffbuild/ffmpeg/ffbuild/version.sh ffbuild/ffmpeg)
+    echo "FFmpeg version from build system: $FFMPEG_VERSION"
+else
+    FFMPEG_VERSION="$FFMPEG_VERSION"
+    echo "Using default FFmpeg version: $FFMPEG_VERSION"
+fi
+
+# Apply patches from private repository if specified
+if [[ -n "$PATCH_CLONE_URL" ]]; then
+    echo "Applying patches from private repository..."
+    git clone --filter=blob:none --branch="$GIT_BRANCH" "$PATCH_CLONE_URL" /tmp/patches
+
+    echo "Checking for patches in /tmp/patches..."
+    ls -la /tmp/patches/
+
+    # Simple patch application
+    echo "Applying patches..."
+    patch_count=0
+    for patch in /tmp/patches/*.patch; do
+        if [[ -f "$patch" ]]; then
+            echo "Applying patch: $(basename "$patch")"
+            git apply "$patch" || exit 1
+            patch_count=$((patch_count + 1))
+        fi
+    done
+
+    if [[ $patch_count -eq 0 ]]; then
+        echo "Error: No patch files found in /tmp/patches/*.patch"
+        exit 1
+    fi
+
+    echo "Successfully applied $patch_count patches"
+
+    rm -rf /tmp/patches
+fi
+
 # shellcheck disable=SC2086
 
 # this is a temporary fix to allow building ffmpeg 7.1.x with svtav1 >= 3.0.0
@@ -1141,6 +1210,17 @@ echo "Building done. The following binaries can be found here:"
 echo "- ffmpeg: $WORKSPACE/bin/ffmpeg"
 echo "- ffprobe: $WORKSPACE/bin/ffprobe"
 echo "- ffplay: $WORKSPACE/bin/ffplay"
+echo ""
+echo "Library files can be found here:"
+echo "- Libraries: $WORKSPACE/lib/"
+echo "  - Static libraries (*.a): $(find "$WORKSPACE/lib" -name "*.a" 2>/dev/null | wc -l)"
+echo "  - Dynamic libraries (*.so/*.dylib): $(find "$WORKSPACE/lib" -name "*.so" -o -name "*.dylib" 2>/dev/null | wc -l)"
+echo ""
+echo "Build information:"
+echo "- FFmpeg commit: $FFMPEG_COMMIT"
+echo "- Git branch: $FFMPEG_GIT_BRANCH"
+echo "- Build system version: $FFMPEG_VERSION"
+echo "- Build date: $(date)"
 echo ""
 
 INSTALL_NOW=0
