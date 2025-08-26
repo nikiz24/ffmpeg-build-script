@@ -1,16 +1,24 @@
-name: build test
+name: Legacy Build Test (Disabled)
 
+# 此工作流程已停用，请使用 build-mac-linux.yml
 on:
-  push:
-    paths-ignore:
-      - '*.md'
-  pull_request:
-    branches: [ master ]
+  # 禁用所有自动触发，只允许手动触发用于测试
+  workflow_dispatch:
+    inputs:
+      legacy_test:
+        description: 'Run legacy test build (not recommended)'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 jobs:
   build-linux:
-    name: build in native linux
+    name: build in native linux (Legacy)
     runs-on: ubuntu-24.04
+    if: ${{ github.event.inputs.legacy_test == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,8 +44,9 @@ jobs:
           ./build-ffmpeg --cleanup
 
   build-macos:
-    name: build in native macOS
+    name: build in native macOS (Legacy)
     runs-on: macos-15
+    if: ${{ github.event.inputs.legacy_test == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -58,8 +67,9 @@ jobs:
           ./build-ffmpeg --cleanup
 
   build-docker:
-    name: build in docker
+    name: build in docker (Legacy)
     runs-on: ubuntu-24.04
+    if: ${{ github.event.inputs.legacy_test == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -80,8 +90,9 @@ jobs:
           docker run --rm ffmpeg:ubuntu -buildconf
 
   build-cuda-ubuntu-docker:
-    name: build in ubuntu docker with cuda
+    name: build in ubuntu docker with cuda (Legacy)
     runs-on: ubuntu-22.04
+    if: ${{ github.event.inputs.legacy_test == 'true' }}
     steps:
       - name: Free up disk space
         run: |
@@ -108,8 +119,9 @@ jobs:
           docker run --rm ffmpeg:cuda-ubuntu -buildconf
 
   build-full-static:
-    name: full static build in docker
+    name: full static build in docker (Legacy)
     runs-on: ubuntu-22.04
+    if: ${{ github.event.inputs.legacy_test == 'true' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

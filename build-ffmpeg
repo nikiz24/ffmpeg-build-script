@@ -1137,7 +1137,7 @@ fi
 # Apply patches from private repository if specified
 if [[ -n "$PATCH_CLONE_URL" ]]; then
     echo "Applying patches from private repository..."
-    git clone --filter=blob:none --branch="$GIT_BRANCH" "$PATCH_CLONE_URL" /tmp/patches
+    git clone --filter=blob:none --branch="$FFMPEG_GIT_BRANCH" "$PATCH_CLONE_URL" /tmp/patches
 
     echo "Checking for patches in /tmp/patches..."
     ls -la /tmp/patches/
