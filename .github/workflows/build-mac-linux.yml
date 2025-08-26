@@ -1,7 +1,6 @@
 name: FFmpeg Build with Custom Patches
 
 on:
-  # 只在手动触发时运行，避免每次提交都自动构建
   workflow_dispatch:
     inputs:
       ffmpeg_git_branch:
@@ -10,13 +9,39 @@ on:
         default: 'release/7.1'
         type: choice
         options:
-          - 'release/8.1'
-          - 'release/8.0'
           - 'release/7.1'
           - 'release/7.0'
           - 'release/6.1'
           - 'master'
           - 'main'
+      enable_builds:
+        description: 'Select which builds to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - 'all'
+          - 'darwin-only'
+          - 'linux-only'
+          - 'darwin-x64-only'
+          - 'darwin-arm64-only'
+      use_cache:
+        description: 'Use build cache to speed up compilation'
+        required: true
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      cache_action:
+        description: 'Cache management action'
+        required: false
+        default: 'use'
+        type: choice
+        options:
+          - 'use'
+          - 'refresh'
+          - 'clean-rebuild'
       git_branch:
         description: 'Git branch for patches'
         required: false
@@ -32,22 +57,9 @@ on:
         required: false
         default: 'https://github.com/FFmpeg/FFmpeg.git'
         type: string
-      enable_builds:
-        description: 'Select which builds to run'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - 'all'
-          - 'darwin-only'
-          - 'linux-only'
-          - 'darwin-x64-only'
-          - 'darwin-arm64-only'
-  # 可选：在发布标签时自动构建
   push:
     tags:
       - 'v*'
-  # 可选：在 PR 合并到主分支时构建（用于验证）
   pull_request:
     branches: [ main, master ]
     types: [ closed ]
@@ -62,7 +74,6 @@ jobs:
   build-macos-x64:
     name: Build macOS x64
     runs-on: macos-15
-    # 条件：只在选择了 darwin 构建时运行
     if: ${{ github.event.inputs.enable_builds == 'all' || github.event.inputs.enable_builds == 'darwin-only' || github.event.inputs.enable_builds == 'darwin-x64-only' || github.event_name != 'workflow_dispatch' }}
     outputs:
       ffmpeg-version: ${{ steps.version.outputs.version }}
@@ -74,6 +85,70 @@ jobs:
         run: |
           echo "Building for x64"
           export ARCH=x64
+          echo "Cache settings:"
+          echo "- Use cache: ${{ github.event.inputs.use_cache }}"
+          echo "- Cache action: ${{ github.event.inputs.cache_action }}"
+
+      # 清理缓存（如果选择了 clean-rebuild）
+      - name: Clean cache directories
+        if: ${{ github.event.inputs.cache_action == 'clean-rebuild' }}
+        run: |
+          echo "🧹 Cleaning cache directories for fresh build..."
+          rm -rf packages workspace/lib workspace/include
+          # 清理 Homebrew 缓存
+          rm -rf ~/Library/Caches/Homebrew
+          brew cleanup --prune=all || true
+
+      # 缓存 Homebrew 依赖（根据用户选择）
+      - name: Cache Homebrew
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar
+            /usr/local/Homebrew
+            ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-homebrew-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('.github/workflows/build-mac-linux.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
+
+      # 缓存构建包和依赖（根据用户选择）
+      - name: Cache build packages
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages
+            workspace/lib
+            workspace/include
+          key: ${{ runner.os }}-x64-packages-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-packages-${{ env.FFMPEG_GIT_BRANCH }}-
+            ${{ runner.os }}-x64-packages-
+
+      # 显示缓存状态
+      - name: Display cache status
+        run: |
+          echo "📊 Cache status information:"
+          echo "=================================="
+          if [[ "${{ github.event.inputs.use_cache }}" == "true" ]]; then
+            echo "✅ Cache: ENABLED"
+            echo "📋 Action: ${{ github.event.inputs.cache_action }}"
+            if [[ -d "packages" ]]; then
+              echo "📦 Packages cache: FOUND ($(du -sh packages 2>/dev/null | cut -f1))"
+              ls -la packages/ | head -5
+            else
+              echo "📦 Packages cache: NOT FOUND (fresh build)"
+            fi
+            if [[ -d "workspace/lib" ]]; then
+              echo "🔧 Workspace cache: FOUND ($(du -sh workspace 2>/dev/null | cut -f1))"
+            else
+              echo "🔧 Workspace cache: NOT FOUND (fresh build)"
+            fi
+          else
+            echo "❌ Cache: DISABLED (fresh build)"
+          fi
+          echo "=================================="
 
       - name: Install dependencies
         run: |
@@ -159,7 +234,6 @@ jobs:
   build-macos-arm64:
     name: Build macOS ARM64
     runs-on: macos-15
-    # 条件：只在选择了 darwin 构建时运行
     if: ${{ github.event.inputs.enable_builds == 'all' || github.event.inputs.enable_builds == 'darwin-only' || github.event.inputs.enable_builds == 'darwin-arm64-only' || github.event_name != 'workflow_dispatch' }}
     outputs:
       ffmpeg-version: ${{ steps.version.outputs.version }}
@@ -171,6 +245,70 @@ jobs:
         run: |
           echo "Building for ARM64"
           export ARCH=arm64
+          echo "Cache settings:"
+          echo "- Use cache: ${{ github.event.inputs.use_cache }}"
+          echo "- Cache action: ${{ github.event.inputs.cache_action }}"
+
+      # 清理缓存（如果选择了 clean-rebuild）
+      - name: Clean cache directories
+        if: ${{ github.event.inputs.cache_action == 'clean-rebuild' }}
+        run: |
+          echo "🧹 Cleaning cache directories for fresh build..."
+          rm -rf packages workspace/lib workspace/include
+          # 清理 Homebrew 缓存
+          rm -rf ~/Library/Caches/Homebrew
+          brew cleanup --prune=all || true
+
+      # 缓存 Homebrew 依赖（根据用户选择）
+      - name: Cache Homebrew
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Cellar
+            /usr/local/Homebrew
+            ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-homebrew-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('.github/workflows/build-mac-linux.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-homebrew-
+
+      # 缓存构建包和依赖（根据用户选择）
+      - name: Cache build packages
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages
+            workspace/lib
+            workspace/include
+          key: ${{ runner.os }}-arm64-packages-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          restore-keys: |
+            ${{ runner.os }}-arm64-packages-${{ env.FFMPEG_GIT_BRANCH }}-
+            ${{ runner.os }}-arm64-packages-
+
+      # 显示缓存状态
+      - name: Display cache status
+        run: |
+          echo "📊 Cache status information:"
+          echo "=================================="
+          if [[ "${{ github.event.inputs.use_cache }}" == "true" ]]; then
+            echo "✅ Cache: ENABLED"
+            echo "📋 Action: ${{ github.event.inputs.cache_action }}"
+            if [[ -d "packages" ]]; then
+              echo "📦 Packages cache: FOUND ($(du -sh packages 2>/dev/null | cut -f1))"
+              ls -la packages/ | head -5
+            else
+              echo "📦 Packages cache: NOT FOUND (fresh build)"
+            fi
+            if [[ -d "workspace/lib" ]]; then
+              echo "🔧 Workspace cache: FOUND ($(du -sh workspace 2>/dev/null | cut -f1))"
+            else
+              echo "🔧 Workspace cache: NOT FOUND (fresh build)"
+            fi
+          else
+            echo "❌ Cache: DISABLED (fresh build)"
+          fi
+          echo "=================================="
 
       - name: Install dependencies
         run: |
@@ -257,7 +395,6 @@ jobs:
     name: Create Universal macOS Binary
     runs-on: macos-15
     needs: [build-macos-x64, build-macos-arm64]
-    # 条件：只在两个 darwin 构建都成功时运行
     if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-macos-arm64.result == 'success' && (github.event.inputs.enable_builds == 'all' || github.event.inputs.enable_builds == 'darwin-only' || github.event_name != 'workflow_dispatch') }}
     
     steps:
@@ -361,7 +498,6 @@ jobs:
   build-cuda-ubuntu-docker:
     name: Build Ubuntu CUDA Docker
     runs-on: ubuntu-22.04
-    # 条件：只在选择了 linux 构建时运行
     if: ${{ github.event.inputs.enable_builds == 'all' || github.event.inputs.enable_builds == 'linux-only' || github.event_name != 'workflow_dispatch' }}
     outputs:
       ffmpeg-version: ${{ steps.version.outputs.version }}
@@ -374,6 +510,50 @@ jobs:
       
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      # 清理 Docker 缓存（如果选择了 clean-rebuild）
+      - name: Clean Docker cache
+        if: ${{ github.event.inputs.cache_action == 'clean-rebuild' }}
+        run: |
+          echo "🧹 Cleaning Docker cache for fresh build..."
+          docker system prune -af
+          rm -rf /tmp/.buildx-cache
+      
+      # 设置 Docker Buildx（根据用户选择）
+      - name: Set up Docker Buildx
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+      
+      # 缓存 Docker 层（根据用户选择）
+      - name: Cache Docker layers
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-cuda-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('cuda-ubuntu.dockerfile', 'build-ffmpeg') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-cuda-${{ env.FFMPEG_GIT_BRANCH }}-
+            ${{ runner.os }}-buildx-cuda-
+      
+      # 显示缓存状态
+      - name: Display cache status
+        run: |
+          echo "📊 Docker cache status:"
+          echo "=================================="
+          echo "- Use cache: ${{ github.event.inputs.use_cache }}"
+          echo "- Cache action: ${{ github.event.inputs.cache_action }}"
+          if [[ "${{ github.event.inputs.use_cache }}" == "true" && "${{ github.event.inputs.cache_action }}" != "clean-rebuild" ]]; then
+            if [[ -d "/tmp/.buildx-cache" ]]; then
+              echo "✅ Docker cache: FOUND ($(du -sh /tmp/.buildx-cache 2>/dev/null | cut -f1))"
+            else
+              echo "📦 Docker cache: NOT FOUND (fresh build)"
+            fi
+          else
+            echo "❌ Docker cache: DISABLED"
+          fi
+          echo "=================================="
       
       - name: Pull base image
         id: cuda_ubuntu_pull
@@ -389,13 +569,36 @@ jobs:
       
       - name: Build FFmpeg with CUDA
         run: |
-          docker build \
-            --build-arg GIT_BRANCH="${{ env.GIT_BRANCH }}" \
-            --build-arg PATCH_CLONE_URL="${{ env.PATCH_CLONE_URL }}" \
-            --build-arg FFMPEG_GIT_URL="${{ env.FFMPEG_GIT_URL }}" \
-            --build-arg FFMPEG_GIT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}" \
-            -t ffmpeg:cuda-ubuntu \
-            -f cuda-ubuntu.dockerfile .
+          if [[ "${{ github.event.inputs.use_cache }}" == "true" && "${{ github.event.inputs.cache_action }}" != "clean-rebuild" ]]; then
+            echo "🚀 Building with cache enabled..."
+            docker buildx build \
+              --cache-from type=local,src=/tmp/.buildx-cache \
+              --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+              --build-arg GIT_BRANCH="${{ env.GIT_BRANCH }}" \
+              --build-arg PATCH_CLONE_URL="${{ env.PATCH_CLONE_URL }}" \
+              --build-arg FFMPEG_GIT_URL="${{ env.FFMPEG_GIT_URL }}" \
+              --build-arg FFMPEG_GIT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}" \
+              --load \
+              -t ffmpeg:cuda-ubuntu \
+              -f cuda-ubuntu.dockerfile .
+          else
+            echo "📝 Building without cache (fresh build)..."
+            docker build \
+              --no-cache \
+              --build-arg GIT_BRANCH="${{ env.GIT_BRANCH }}" \
+              --build-arg PATCH_CLONE_URL="${{ env.PATCH_CLONE_URL }}" \
+              --build-arg FFMPEG_GIT_URL="${{ env.FFMPEG_GIT_URL }}" \
+              --build-arg FFMPEG_GIT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}" \
+              -t ffmpeg:cuda-ubuntu \
+              -f cuda-ubuntu.dockerfile .
+          fi
+      
+      # 更新缓存（仅在使用缓存时）
+      - name: Move cache
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
       
       - name: Test run ffmpeg
         run: |
