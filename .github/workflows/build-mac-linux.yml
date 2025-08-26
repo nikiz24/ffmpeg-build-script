@@ -1,0 +1,433 @@
+name: FFmpeg Build with Custom Patches
+
+on:
+  push:
+    branches: [ main, master, 'dev/**' ]
+  pull_request:
+    branches: [ main, master, 'dev/**' ]
+  workflow_dispatch:
+    inputs:
+      git_branch:
+        description: 'Git branch for patches'
+        required: false
+        default: 'main'
+      patch_clone_url:
+        description: 'Private repository URL for patches'
+        required: false
+        default: ''
+      ffmpeg_git_url:
+        description: 'FFmpeg git repository URL'
+        required: false
+        default: 'https://github.com/FFmpeg/FFmpeg.git'
+      ffmpeg_git_branch:
+        description: 'FFmpeg git branch to build'
+        required: false
+        default: 'release/8.0'
+
+env:
+  GIT_BRANCH: ${{ github.event.inputs.git_branch || vars.GIT_BRANCH || 'main' }}
+  PATCH_CLONE_URL: ${{ github.event.inputs.patch_clone_url || secrets.PATCH_CLONE_URL || '' }}
+  FFMPEG_GIT_URL: ${{ github.event.inputs.ffmpeg_git_url || vars.FFMPEG_GIT_URL || 'https://github.com/FFmpeg/FFmpeg.git' }}
+  FFMPEG_GIT_BRANCH: ${{ github.event.inputs.ffmpeg_git_branch || vars.FFMPEG_GIT_BRANCH || 'release/7.1' }}
+
+jobs:
+  build-macos-x64:
+    name: Build macOS x64
+    runs-on: macos-15
+    outputs:
+      ffmpeg-version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          echo "Building for x64"
+          export ARCH=x64
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm
+
+      - name: Build FFmpeg
+        run: |
+          chmod +x ./build-ffmpeg
+          ./build-ffmpeg --build --enable-gpl-and-non-free
+
+      - name: Extract version information
+        id: version
+        run: |
+          # Get FFmpeg version string
+          FFMPEG_VERSION=$(./workspace/bin/ffmpeg -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+          echo "Raw FFmpeg version: $FFMPEG_VERSION"
+          
+          # Extract version components (handle both release and git versions)
+          if [[ "$FFMPEG_VERSION" =~ ^n?([0-9]+\.[0-9]+\.?[0-9]*)-?g?([a-f0-9]*) ]]; then
+            VERSION_NUM="${BASH_REMATCH[1]}"
+            GIT_HASH="${BASH_REMATCH[2]}"
+            if [[ -n "$GIT_HASH" ]]; then
+              PACKAGE_VERSION="n${VERSION_NUM}-g${GIT_HASH}"
+            else
+              PACKAGE_VERSION="n${VERSION_NUM}"
+            fi
+          else
+            # Fallback for different version formats
+            PACKAGE_VERSION="${FFMPEG_VERSION}"
+          fi
+          
+          echo "Package version: $PACKAGE_VERSION"
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Test run ffmpeg
+        run: |
+          ./workspace/bin/ffmpeg -buildconf
+
+      - name: Create release package
+        run: |
+          mkdir -p ./release
+          cp workspace/bin/ffmpeg ./release/
+          cp workspace/bin/ffprobe ./release/
+          cp workspace/bin/ffplay ./release/
+          
+          # Create version info
+          echo "FFmpeg ${{ steps.version.outputs.version }} for Darwin x64" > ./release/README.txt
+          echo "Platform: Darwin (macOS)" >> ./release/README.txt
+          echo "Architecture: x86_64" >> ./release/README.txt
+          echo "Build date: $(date)" >> ./release/README.txt
+          echo "FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}" >> ./release/README.txt
+          
+          # Create packages with proper naming
+          PACKAGE_NAME="ffmpeg-${{ steps.version.outputs.version }}-darwin-x64"
+          cd ./release
+          tar -czf ../${PACKAGE_NAME}.tar.gz *
+          zip -r ../${PACKAGE_NAME}.zip *
+          cd ..
+          
+          echo "Created packages:"
+          ls -la *.tar.gz *.zip
+
+      - name: Upload x64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-x64
+          path: |
+            workspace/bin/ffmpeg
+            workspace/bin/ffprobe
+            workspace/bin/ffplay
+          retention-days: 30
+
+      - name: Upload x64 packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-darwin-x64-packages
+          path: |
+            ffmpeg-${{ steps.version.outputs.version }}-darwin-x64.tar.gz
+            ffmpeg-${{ steps.version.outputs.version }}-darwin-x64.zip
+          retention-days: 30
+
+  build-macos-arm64:
+    name: Build macOS ARM64
+    runs-on: macos-15
+    outputs:
+      ffmpeg-version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up environment
+        run: |
+          echo "Building for ARM64"
+          export ARCH=arm64
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm
+
+      - name: Build FFmpeg
+        run: |
+          chmod +x ./build-ffmpeg
+          ./build-ffmpeg --build --enable-gpl-and-non-free
+
+      - name: Extract version information
+        id: version
+        run: |
+          # Get FFmpeg version string
+          FFMPEG_VERSION=$(./workspace/bin/ffmpeg -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+          echo "Raw FFmpeg version: $FFMPEG_VERSION"
+          
+          # Extract version components (handle both release and git versions)
+          if [[ "$FFMPEG_VERSION" =~ ^n?([0-9]+\.[0-9]+\.?[0-9]*)-?g?([a-f0-9]*) ]]; then
+            VERSION_NUM="${BASH_REMATCH[1]}"
+            GIT_HASH="${BASH_REMATCH[2]}"
+            if [[ -n "$GIT_HASH" ]]; then
+              PACKAGE_VERSION="n${VERSION_NUM}-g${GIT_HASH}"
+            else
+              PACKAGE_VERSION="n${VERSION_NUM}"
+            fi
+          else
+            # Fallback for different version formats
+            PACKAGE_VERSION="${FFMPEG_VERSION}"
+          fi
+          
+          echo "Package version: $PACKAGE_VERSION"
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Test run ffmpeg
+        run: |
+          ./workspace/bin/ffmpeg -buildconf
+
+      - name: Create release package
+        run: |
+          mkdir -p ./release
+          cp workspace/bin/ffmpeg ./release/
+          cp workspace/bin/ffprobe ./release/
+          cp workspace/bin/ffplay ./release/
+          
+          # Create version info
+          echo "FFmpeg ${{ steps.version.outputs.version }} for Darwin ARM64" > ./release/README.txt
+          echo "Platform: Darwin (macOS)" >> ./release/README.txt
+          echo "Architecture: arm64" >> ./release/README.txt
+          echo "Build date: $(date)" >> ./release/README.txt
+          echo "FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}" >> ./release/README.txt
+          
+          # Create packages with proper naming
+          PACKAGE_NAME="ffmpeg-${{ steps.version.outputs.version }}-darwin-arm64"
+          cd ./release
+          tar -czf ../${PACKAGE_NAME}.tar.gz *
+          zip -r ../${PACKAGE_NAME}.zip *
+          cd ..
+          
+          echo "Created packages:"
+          ls -la *.tar.gz *.zip
+
+      - name: Upload ARM64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-arm64
+          path: |
+            workspace/bin/ffmpeg
+            workspace/bin/ffprobe
+            workspace/bin/ffplay
+          retention-days: 30
+
+      - name: Upload ARM64 packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-darwin-arm64-packages
+          path: |
+            ffmpeg-${{ steps.version.outputs.version }}-darwin-arm64.tar.gz
+            ffmpeg-${{ steps.version.outputs.version }}-darwin-arm64.zip
+          retention-days: 30
+
+  create-universal-macos:
+    name: Create Universal macOS Binary
+    runs-on: macos-15
+    needs: [build-macos-x64, build-macos-arm64]
+    if: always() && needs.build-macos-x64.result == 'success' && needs.build-macos-arm64.result == 'success'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-macos-x64
+          path: ./x64
+      
+      - name: Download ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-macos-arm64
+          path: ./arm64
+      
+      - name: Create universal binaries and extract version
+        id: universal
+        run: |
+          mkdir -p ./universal
+          
+          # Create universal ffmpeg
+          lipo -create ./x64/ffmpeg ./arm64/ffmpeg -output ./universal/ffmpeg
+          
+          # Create universal ffprobe
+          lipo -create ./x64/ffprobe ./arm64/ffprobe -output ./universal/ffprobe
+          
+          # Create universal ffplay
+          lipo -create ./x64/ffplay ./arm64/ffplay -output ./universal/ffplay
+          
+          # Extract version information
+          FFMPEG_VERSION=$(./universal/ffmpeg -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+          echo "Raw FFmpeg version: $FFMPEG_VERSION"
+          
+          # Extract version components (handle both release and git versions)
+          if [[ "$FFMPEG_VERSION" =~ ^n?([0-9]+\.[0-9]+\.?[0-9]*)-?g?([a-f0-9]*) ]]; then
+            VERSION_NUM="${BASH_REMATCH[1]}"
+            GIT_HASH="${BASH_REMATCH[2]}"
+            if [[ -n "$GIT_HASH" ]]; then
+              PACKAGE_VERSION="n${VERSION_NUM}-g${GIT_HASH}"
+            else
+              PACKAGE_VERSION="n${VERSION_NUM}"
+            fi
+          else
+            # Fallback for different version formats
+            PACKAGE_VERSION="${FFMPEG_VERSION}"
+          fi
+          
+          echo "Package version: $PACKAGE_VERSION"
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          
+          # Verify universal binaries
+          echo "Universal binary information:"
+          file ./universal/*
+          
+          # Test binaries
+          ./universal/ffmpeg -version | head -n 1
+          ./universal/ffprobe -version | head -n 1
+          ./universal/ffplay -version | head -n 1
+          
+          # Create version info
+          echo "FFmpeg $PACKAGE_VERSION Universal Binary for Darwin" > ./universal/README.txt
+          echo "Platform: Darwin (macOS)" >> ./universal/README.txt
+          echo "Architectures: x86_64, arm64" >> ./universal/README.txt
+          echo "Build date: $(date)" >> ./universal/README.txt
+          echo "FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}" >> ./universal/README.txt
+          
+          # Show final package structure
+          echo "Final package contents:"
+          ls -la ./universal/
+      
+      - name: Upload universal artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos-universal
+          path: ./universal/
+          retention-days: 30
+      
+      - name: Create release package
+        run: |
+          PACKAGE_NAME="ffmpeg-${{ steps.universal.outputs.version }}-darwin-universal"
+          cd ./universal
+          tar -czf ../${PACKAGE_NAME}.tar.gz *
+          zip -r ../${PACKAGE_NAME}.zip *
+          cd ..
+          
+          echo "Release packages created:"
+          ls -la *.tar.gz *.zip
+      
+      - name: Upload release packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-darwin-universal-packages
+          path: |
+            ffmpeg-${{ steps.universal.outputs.version }}-darwin-universal.tar.gz
+            ffmpeg-${{ steps.universal.outputs.version }}-darwin-universal.zip
+          retention-days: 30
+
+  build-cuda-ubuntu-docker:
+    name: Build Ubuntu CUDA Docker
+    runs-on: ubuntu-22.04
+    outputs:
+      ffmpeg-version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Free up disk space
+        run: |
+          rm -rf /usr/share/dotnet && rm -rf /opt/ghc && rm -rf "/usr/local/share/boost"
+          rm -rf /opt/hostedtoolcache && cd /opt && find . -maxdepth 1 -mindepth 1 '!' -path ./containerd '!' -path ./actionarchivecache '!' -path ./runner '!' -path ./runner-cache -exec rm -rf '{}' ';'
+          docker system prune -af
+      
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Pull base image
+        id: cuda_ubuntu_pull
+        run: |
+          docker pull nvidia/cuda:12.6.2-devel-ubuntu22.04
+          docker pull ubuntu:22.04
+      
+      - name: Retry pull if failed
+        if: failure() && steps.cuda_ubuntu_pull.outcome == 'failure'
+        run: |
+          docker pull nvidia/cuda:12.6.2-devel-ubuntu22.04
+          docker pull ubuntu:22.04
+      
+      - name: Build FFmpeg with CUDA
+        run: |
+          docker build \
+            --build-arg GIT_BRANCH="${{ env.GIT_BRANCH }}" \
+            --build-arg PATCH_CLONE_URL="${{ env.PATCH_CLONE_URL }}" \
+            --build-arg FFMPEG_GIT_URL="${{ env.FFMPEG_GIT_URL }}" \
+            --build-arg FFMPEG_GIT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}" \
+            -t ffmpeg:cuda-ubuntu \
+            -f cuda-ubuntu.dockerfile .
+      
+      - name: Test run ffmpeg
+        run: |
+          docker run --rm ffmpeg:cuda-ubuntu -buildconf
+      
+      - name: Extract binaries and version from Docker
+        id: version
+        run: |
+          mkdir -p ./cuda-ubuntu-artifacts
+          docker create --name temp-container ffmpeg:cuda-ubuntu
+          docker cp temp-container:/usr/bin/ffmpeg ./cuda-ubuntu-artifacts/
+          docker cp temp-container:/usr/bin/ffprobe ./cuda-ubuntu-artifacts/
+          docker cp temp-container:/usr/bin/ffplay ./cuda-ubuntu-artifacts/ 2>/dev/null || echo "ffplay not found"
+          
+          # Extract version information
+          FFMPEG_VERSION=$(./cuda-ubuntu-artifacts/ffmpeg -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+          echo "Raw FFmpeg version: $FFMPEG_VERSION"
+          
+          # Extract version components (handle both release and git versions)
+          if [[ "$FFMPEG_VERSION" =~ ^n?([0-9]+\.[0-9]+\.?[0-9]*)-?g?([a-f0-9]*) ]]; then
+            VERSION_NUM="${BASH_REMATCH[1]}"
+            GIT_HASH="${BASH_REMATCH[2]}"
+            if [[ -n "$GIT_HASH" ]]; then
+              PACKAGE_VERSION="n${VERSION_NUM}-g${GIT_HASH}"
+            else
+              PACKAGE_VERSION="n${VERSION_NUM}"
+            fi
+          else
+            # Fallback for different version formats
+            PACKAGE_VERSION="${FFMPEG_VERSION}"
+          fi
+          
+          echo "Package version: $PACKAGE_VERSION"
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          
+          # Create version info
+          echo "FFmpeg $PACKAGE_VERSION for Linux x64 with CUDA" > ./cuda-ubuntu-artifacts/README.txt
+          echo "Architecture: x86_64" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Features: CUDA acceleration" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Build date: $(date)" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}" >> ./cuda-ubuntu-artifacts/README.txt
+          
+          docker rm temp-container
+
+      - name: Create release package
+        run: |
+          PACKAGE_NAME="ffmpeg-${{ steps.version.outputs.version }}-linux-amd64"
+          cd ./cuda-ubuntu-artifacts
+          tar -czf ../${PACKAGE_NAME}.tar.gz *
+          zip -r ../${PACKAGE_NAME}.zip *
+          cd ..
+          
+          echo "Created packages:"
+          ls -la *.tar.gz *.zip
+      
+      - name: Upload CUDA Ubuntu artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-cuda-ubuntu
+          path: ./cuda-ubuntu-artifacts/
+          retention-days: 30
+
+      - name: Upload CUDA Ubuntu packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-cuda-ubuntu-packages
+          path: |
+            ffmpeg-${{ steps.version.outputs.version }}-linux-amd64.tar.gz
+            ffmpeg-${{ steps.version.outputs.version }}-linux-amd64.zip
+          retention-days: 30

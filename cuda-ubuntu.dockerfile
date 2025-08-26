@@ -1,7 +1,19 @@
 ARG CUDAVER=12.9.0
 ARG UBUNTUVER=22.04
 
+# Build arguments for patch support
+ARG GIT_BRANCH=main
+ARG PATCH_CLONE_URL=""
+ARG FFMPEG_GIT_URL=https://github.com/FFmpeg/FFmpeg.git
+ARG FFMPEG_GIT_BRANCH=release/7.1
+
 FROM nvidia/cuda:${CUDAVER}-devel-ubuntu${UBUNTUVER} AS build
+
+# Set environment variables for build
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV PATCH_CLONE_URL=${PATCH_CLONE_URL}
+ENV FFMPEG_GIT_URL=${FFMPEG_GIT_URL}
+ENV FFMPEG_GIT_BRANCH=${FFMPEG_GIT_BRANCH}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NVIDIA_VISIBLE_DEVICES=all
