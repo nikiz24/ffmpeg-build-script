@@ -1,5 +1,4 @@
 name: FFmpeg Build with Custom Patches
-name: FFmpeg Build with Custom Patches
 
 on:
   workflow_dispatch:
