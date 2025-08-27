@@ -1,4 +1,5 @@
 name: FFmpeg Build with Custom Patches
+name: FFmpeg Build with Custom Patches
 
 on:
   workflow_dispatch:
@@ -424,22 +425,21 @@ jobs:
           ./universal/ffplay -version | head -n 1
           
           # Create README
-          cat > ./universal/README.txt << EOF
-FFmpeg $PACKAGE_VERSION Universal Binary for Darwin
-
-Platform: Darwin (macOS)
-Architectures: x86_64, arm64
-Build date: $(date)
-FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}
-
-Binaries included:
-- ffmpeg: Main FFmpeg binary
-- ffprobe: Media analysis tool
-- ffplay: Media player
-
-For more information, visit:
-https://github.com/markus-perl/ffmpeg-build-script
-EOF
+          CURRENT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}"
+          echo "FFmpeg Universal Binary for Darwin" > ./universal/README.txt
+          echo "" >> ./universal/README.txt
+          echo "Platform: Darwin (macOS)" >> ./universal/README.txt
+          echo "Architectures: x86_64, arm64" >> ./universal/README.txt
+          echo "Build date: \$(date)" >> ./universal/README.txt
+          echo "FFmpeg branch: ${CURRENT_BRANCH}" >> ./universal/README.txt
+          echo "" >> ./universal/README.txt
+          echo "Binaries included:" >> ./universal/README.txt
+          echo "- ffmpeg: Main FFmpeg binary" >> ./universal/README.txt
+          echo "- ffprobe: Media analysis tool" >> ./universal/README.txt
+          echo "- ffplay: Media player" >> ./universal/README.txt
+          echo "" >> ./universal/README.txt
+          echo "For more information, visit:" >> ./universal/README.txt
+          echo "https://github.com/markus-perl/ffmpeg-build-script" >> ./universal/README.txt
           
           # Create packages with standardized naming
           PACKAGE_BASE_NAME="ffmpeg-${PACKAGE_VERSION}-darwin-universal"
@@ -614,23 +614,22 @@ EOF
           echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
           
           # Create README with build information
-          cat > ./cuda-ubuntu-artifacts/README.txt << EOF
-FFmpeg $PACKAGE_VERSION for Linux amd64 with CUDA
-
-Platform: Linux
-Architecture: amd64
-Features: CUDA acceleration
-Build date: $(date)
-FFmpeg branch: ${{ env.FFMPEG_GIT_BRANCH }}
-
-Binaries included:
-- ffmpeg: Main FFmpeg binary with CUDA support
-- ffprobe: Media analysis tool
-$(if [[ -f "./cuda-ubuntu-artifacts/ffplay" ]]; then echo "- ffplay: Media player"; fi)
-
-For more information, visit:
-https://github.com/markus-perl/ffmpeg-build-script
-EOF
+          CURRENT_BRANCH="${{ env.FFMPEG_GIT_BRANCH }}"
+          echo "FFmpeg for Linux amd64 with CUDA" > ./cuda-ubuntu-artifacts/README.txt
+          echo "" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Platform: Linux" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Architecture: amd64" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Features: CUDA acceleration" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Build date: \$(date)" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "FFmpeg branch: ${CURRENT_BRANCH}" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "Binaries included:" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "- ffmpeg: Main FFmpeg binary with CUDA support" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "- ffprobe: Media analysis tool" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "- ffplay: Media player (if available)" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "For more information, visit:" >> ./cuda-ubuntu-artifacts/README.txt
+          echo "https://github.com/markus-perl/ffmpeg-build-script" >> ./cuda-ubuntu-artifacts/README.txt
           
           # Create packages with standardized naming
           PACKAGE_BASE_NAME="ffmpeg-${PACKAGE_VERSION}-linux-amd64"
