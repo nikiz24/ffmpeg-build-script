@@ -176,7 +176,8 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm
+          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm openjdk 
+          brew upgrade
 
       - name: Build FFmpeg
         run: |
@@ -343,7 +344,8 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm
+          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm openjdk 
+          brew upgrade
 
       - name: Build FFmpeg
         run: |
@@ -635,12 +637,12 @@ jobs:
           docker cp temp-container:/usr/bin/ffprobe ./cuda-ubuntu-artifacts/
           docker cp temp-container:/usr/bin/ffplay ./cuda-ubuntu-artifacts/ 2>/dev/null || echo "ffplay not found"
           
-          # Extract version information
-          FFMPEG_VERSION=$(./cuda-ubuntu-artifacts/ffmpeg -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
-          echo "Raw FFmpeg version: $FFMPEG_VERSION"
+          # Extract version information - fix path issue
+          FFMPEG_VERSION_RAW=$(docker run --rm ffmpeg:cuda-ubuntu -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+          echo "Raw FFmpeg version: $FFMPEG_VERSION_RAW"
           
           # Improved version extraction logic
-          if [[ "$FFMPEG_VERSION" =~ ^n?([0-9]+\.[0-9]+(\.[0-9]+)?)-?([0-9]*-)?g?([a-f0-9]+)? ]]; then
+          if [[ "$FFMPEG_VERSION_RAW" =~ ^n?([0-9]+\.[0-9]+(\.[0-9]+)?)-?([0-9]*-)?g?([a-f0-9]+)? ]]; then
             VERSION_NUM="${BASH_REMATCH[1]}"
             GIT_HASH="${BASH_REMATCH[4]}"
             if [[ -n "$GIT_HASH" && ${#GIT_HASH} -ge 7 ]]; then
@@ -649,7 +651,7 @@ jobs:
               PACKAGE_VERSION="n${VERSION_NUM}"
             fi
           else
-            PACKAGE_VERSION="$FFMPEG_VERSION"
+            PACKAGE_VERSION="$FFMPEG_VERSION_RAW"
           fi
           
           echo "Package version: $PACKAGE_VERSION"
