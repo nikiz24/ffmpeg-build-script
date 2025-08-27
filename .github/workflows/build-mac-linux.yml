@@ -9,6 +9,7 @@ on:
         default: 'release/7.1'
         type: choice
         options:
+          - 'release/8.0'
           - 'release/7.1'
           - 'release/7.0'
           - 'release/6.1'
