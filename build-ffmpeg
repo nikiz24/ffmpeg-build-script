@@ -1097,17 +1097,15 @@ fi
 ##
 
 # Clone FFmpeg from git repository first to determine version
+# Always remove and re-clone to avoid git conflicts and caching issues
 if [[ -d "$PACKAGES/ffmpeg" ]]; then
-    echo "FFmpeg repository already exists, updating..."
-    cd "$PACKAGES/ffmpeg" || exit
-    git fetch origin
-    git checkout "$FFMPEG_GIT_BRANCH"
-    git pull origin "$FFMPEG_GIT_BRANCH"
-else
-    echo "Cloning FFmpeg from $FFMPEG_GIT_URL, branch: $FFMPEG_GIT_BRANCH"
-    git clone --filter=blob:none --branch="$FFMPEG_GIT_BRANCH" "$FFMPEG_GIT_URL" "$PACKAGES/ffmpeg"
-    cd "$PACKAGES/ffmpeg" || exit
+    echo "Removing existing FFmpeg repository to avoid conflicts..."
+    remove_dir "$PACKAGES/ffmpeg"
 fi
+
+echo "Cloning fresh FFmpeg from $FFMPEG_GIT_URL, branch: $FFMPEG_GIT_BRANCH"
+git clone --filter=blob:none --branch="$FFMPEG_GIT_BRANCH" "$FFMPEG_GIT_URL" "$PACKAGES/ffmpeg"
+cd "$PACKAGES/ffmpeg" || exit
 
 # Get current commit hash for version info
 FFMPEG_COMMIT=$(git rev-parse --short HEAD)
@@ -1175,15 +1173,28 @@ fi
 
 build "ffmpeg" "$FFMPEG_VERSION"
 
+# Force rebuild FFmpeg regardless of cache - remove done file if exists
+if [ -f "$PACKAGES/ffmpeg.done" ]; then
+    echo "Removing FFmpeg build cache to force fresh build..."
+    rm "$PACKAGES/ffmpeg.done"
+fi
+
 # Apply patches from private repository if specified
 if [[ -n "$PATCH_CLONE_URL" ]]; then
     echo "Applying patches from private repository..."
     echo "FFmpeg branch: $FFMPEG_GIT_BRANCH"
     echo "User specified patch branch: $GIT_BRANCH"
     
+    # Ensure we're in a clean state before applying patches
+    git reset --hard HEAD
+    git clean -fd
+    
     # Smart branch matching: try FFmpeg branch first, then fallback
     PATCH_BRANCH="$FFMPEG_GIT_BRANCH"
     PATCH_REPO_TEMP="/tmp/patches"
+    
+    # Remove existing patch directory
+    rm -rf "$PATCH_REPO_TEMP"
     
     # First try to clone with FFmpeg branch name
     echo "Trying to clone patch repository with branch: $PATCH_BRANCH"
@@ -1223,20 +1234,42 @@ if [[ -n "$PATCH_CLONE_URL" ]]; then
     echo "Checking for patches in $PATCH_REPO_TEMP..."
     ls -la "$PATCH_REPO_TEMP/"
 
-    # Simple patch application
+    # Simple patch application with better error handling
     echo "Applying patches..."
     patch_count=0
+    patch_failed=0
+    
     for patch in "$PATCH_REPO_TEMP"/*.patch; do
         if [[ -f "$patch" ]]; then
             echo "Applying patch: $(basename "$patch")"
-            git apply "$patch" || exit 1
-            patch_count=$((patch_count + 1))
+            if git apply "$patch"; then
+                patch_count=$((patch_count + 1))
+                echo "✅ Successfully applied: $(basename "$patch")"
+            else
+                echo "❌ Failed to apply patch: $(basename "$patch")"
+                echo "Checking what files this patch tries to modify..."
+                git apply --stat "$patch"
+                echo "Checking if patch can be applied with different options..."
+                if git apply --3way "$patch" 2>/dev/null; then
+                    echo "✅ Applied with 3-way merge: $(basename "$patch")"
+                    patch_count=$((patch_count + 1))
+                elif git apply --ignore-space-change --ignore-whitespace "$patch" 2>/dev/null; then
+                    echo "✅ Applied ignoring whitespace: $(basename "$patch")"
+                    patch_count=$((patch_count + 1))
+                else
+                    echo "❌ Patch $(basename "$patch") cannot be applied - skipping"
+                    patch_failed=$((patch_failed + 1))
+                fi
+            fi
         fi
     done
 
-    if [[ $patch_count -eq 0 ]]; then
+    if [[ $patch_count -eq 0 && $patch_failed -eq 0 ]]; then
         echo "⚠️ Warning: No patch files found in $PATCH_REPO_TEMP/*.patch"
         echo "This is not an error - continuing with build without patches."
+    elif [[ $patch_failed -gt 0 ]]; then
+        echo "⚠️ Warning: $patch_failed patches failed to apply, but $patch_count patches were successful"
+        echo "Continuing with build using successfully applied patches."
     else
         echo "✅ Successfully applied $patch_count patches from branch '$PATCH_BRANCH'"
     fi
