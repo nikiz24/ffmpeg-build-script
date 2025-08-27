@@ -43,11 +43,6 @@ on:
           - 'use'
           - 'refresh'
           - 'clean-rebuild'
-      git_branch:
-        description: 'Git branch for patches'
-        required: false
-        default: 'main'
-        type: string
       patch_clone_url:
         description: 'Private repository URL for patches (leave empty if no patches)'
         required: false
@@ -66,7 +61,7 @@ on:
     types: [ closed ]
 
 env:
-  GIT_BRANCH: ${{ github.event.inputs.git_branch || vars.GIT_BRANCH || 'main' }}
+  GIT_BRANCH: ${{ github.event.inputs.ffmpeg_git_branch || vars.FFMPEG_GIT_BRANCH || 'release/7.1' }}
   PATCH_CLONE_URL: ${{ github.event.inputs.patch_clone_url || secrets.PATCH_CLONE_URL || '' }}
   FFMPEG_GIT_URL: ${{ github.event.inputs.ffmpeg_git_url || vars.FFMPEG_GIT_URL || 'https://github.com/FFmpeg/FFmpeg.git' }}
   FFMPEG_GIT_BRANCH: ${{ github.event.inputs.ffmpeg_git_branch || vars.FFMPEG_GIT_BRANCH || 'release/7.1' }}
