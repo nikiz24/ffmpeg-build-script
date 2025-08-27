@@ -111,19 +111,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-homebrew-
 
-      # 缓存构建包和依赖（根据用户选择）
-      - name: Cache build packages
+      # 缓存通用依赖库（与FFmpeg版本无关）
+      - name: Cache universal libraries
         if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
         uses: actions/cache@v4
         with:
           path: |
-            packages
-            workspace/lib
+            packages/*.done
+            workspace/lib/libx264*
+            workspace/lib/libx265*
+            workspace/lib/libvpx*
+            workspace/lib/libopus*
+            workspace/lib/libvorbis*
+            workspace/lib/libfdk*
+            workspace/lib/libsvtav1*
+            workspace/lib/librav1e*
+            workspace/lib/libdav1d*
+            workspace/lib/libopenssl*
+            workspace/lib/libz.*
+            workspace/lib/pkgconfig
             workspace/include
-          key: ${{ runner.os }}-x64-packages-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          key: ${{ runner.os }}-x64-universal-libs-${{ hashFiles('build-ffmpeg') }}
           restore-keys: |
-            ${{ runner.os }}-x64-packages-${{ env.FFMPEG_GIT_BRANCH }}-
-            ${{ runner.os }}-x64-packages-
+            ${{ runner.os }}-x64-universal-libs-
+            ${{ runner.os }}-universal-libs-
+
+      # 缓存FFmpeg特定的构建包和依赖
+      - name: Cache FFmpeg-specific packages
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/ffmpeg*
+            workspace/bin
+          key: ${{ runner.os }}-x64-ffmpeg-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-ffmpeg-${{ env.FFMPEG_GIT_BRANCH }}-
+            ${{ runner.os }}-x64-ffmpeg-
 
       # 显示缓存状态
       - name: Display cache status
@@ -254,19 +278,43 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-homebrew-
 
-      # 缓存构建包和依赖（根据用户选择）
-      - name: Cache build packages
+      # 缓存通用依赖库（与FFmpeg版本无关）
+      - name: Cache universal libraries
         if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
         uses: actions/cache@v4
         with:
           path: |
-            packages
-            workspace/lib
+            packages/*.done
+            workspace/lib/libx264*
+            workspace/lib/libx265*
+            workspace/lib/libvpx*
+            workspace/lib/libopus*
+            workspace/lib/libvorbis*
+            workspace/lib/libfdk*
+            workspace/lib/libsvtav1*
+            workspace/lib/librav1e*
+            workspace/lib/libdav1d*
+            workspace/lib/libopenssl*
+            workspace/lib/libz.*
+            workspace/lib/pkgconfig
             workspace/include
-          key: ${{ runner.os }}-arm64-packages-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          key: ${{ runner.os }}-arm64-universal-libs-${{ hashFiles('build-ffmpeg') }}
           restore-keys: |
-            ${{ runner.os }}-arm64-packages-${{ env.FFMPEG_GIT_BRANCH }}-
-            ${{ runner.os }}-arm64-packages-
+            ${{ runner.os }}-arm64-universal-libs-
+            ${{ runner.os }}-universal-libs-
+
+      # 缓存FFmpeg特定的构建包和依赖
+      - name: Cache FFmpeg-specific packages
+        if: ${{ github.event.inputs.use_cache == 'true' && github.event.inputs.cache_action != 'clean-rebuild' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/ffmpeg*
+            workspace/bin
+          key: ${{ runner.os }}-arm64-ffmpeg-${{ env.FFMPEG_GIT_BRANCH }}-${{ github.event.inputs.cache_action == 'refresh' && github.run_number || hashFiles('build-ffmpeg') }}
+          restore-keys: |
+            ${{ runner.os }}-arm64-ffmpeg-${{ env.FFMPEG_GIT_BRANCH }}-
+            ${{ runner.os }}-arm64-ffmpeg-
 
       # 显示缓存状态
       - name: Display cache status

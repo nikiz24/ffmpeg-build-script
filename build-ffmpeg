@@ -4,7 +4,8 @@
 # LICENSE: https://github.com/markus-perl/ffmpeg-build-script/blob/master/LICENSE
 
 PROGNAME=$(basename "$0")
-FFMPEG_VERSION=8.0
+# FFMPEG_VERSION will be determined dynamically from git repository
+FFMPEG_VERSION=""
 SCRIPT_VERSION=1.56
 CWD=$(pwd)
 PACKAGES="$CWD/packages"
@@ -1095,20 +1096,7 @@ fi
 ## FFmpeg
 ##
 
-EXTRA_VERSION=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  EXTRA_VERSION="${FFMPEG_VERSION}"
-fi
-
-if [ -d "$CWD/.git" ]; then
-  echo -e "\nTemporarily moving .git dir to .git.bak to workaround ffmpeg build bug" #causing ffmpeg version number to be wrong
-  mv "$CWD/.git" "$CWD/.git.bak"
-  # if build fails below, .git will remain in the wrong place...
-fi
-
-build "ffmpeg" "$FFMPEG_VERSION"
-
-# Clone FFmpeg from git repository
+# Clone FFmpeg from git repository first to determine version
 if [[ -d "$PACKAGES/ffmpeg" ]]; then
     echo "FFmpeg repository already exists, updating..."
     cd "$PACKAGES/ffmpeg" || exit
@@ -1126,13 +1114,66 @@ FFMPEG_COMMIT=$(git rev-parse --short HEAD)
 echo "Building FFmpeg from commit: $FFMPEG_COMMIT"
 
 # Get FFmpeg version from build system
-if [[ -f "./ffbuild/ffmpeg/ffbuild/version.sh" ]]; then
-    FFMPEG_VERSION=$(./ffbuild/ffmpeg/ffbuild/version.sh ffbuild/ffmpeg)
+if [[ -f "./ffbuild/version.sh" ]]; then
+    FFMPEG_VERSION=$(./ffbuild/version.sh .)
     echo "FFmpeg version from build system: $FFMPEG_VERSION"
+elif [[ -f "./RELEASE" ]]; then
+    FFMPEG_VERSION=$(cat ./RELEASE)
+    echo "FFmpeg version from RELEASE file: $FFMPEG_VERSION"
 else
-    FFMPEG_VERSION="$FFMPEG_VERSION"
-    echo "Using default FFmpeg version: $FFMPEG_VERSION"
+    # Try to extract version from configure script
+    if [[ -f "./configure" ]]; then
+        FFMPEG_VERSION=$(grep "FFMPEG_VERSION=" ./configure | head -n 1 | cut -d'=' -f2 | tr -d '"')
+        echo "FFmpeg version from configure: $FFMPEG_VERSION"
+    fi
+    
+    # If still empty, try from version.h
+    if [[ -z "$FFMPEG_VERSION" && -f "./libavutil/version.h" ]]; then
+        MAJOR=$(grep "#define LIBAVUTIL_VERSION_MAJOR" ./libavutil/version.h | awk '{print $3}')
+        MINOR=$(grep "#define LIBAVUTIL_VERSION_MINOR" ./libavutil/version.h | awk '{print $3}')
+        MICRO=$(grep "#define LIBAVUTIL_VERSION_MICRO" ./libavutil/version.h | awk '{print $3}')
+        if [[ -n "$MAJOR" && -n "$MINOR" && -n "$MICRO" ]]; then
+            # This is a rough estimation based on libavutil version
+            if [[ $MAJOR -ge 59 ]]; then
+                FFMPEG_VERSION="7.1"
+            elif [[ $MAJOR -ge 58 ]]; then
+                FFMPEG_VERSION="7.0"
+            elif [[ $MAJOR -ge 57 ]]; then
+                FFMPEG_VERSION="6.1"
+            else
+                FFMPEG_VERSION="6.0"
+            fi
+            echo "FFmpeg version estimated from libavutil version ($MAJOR.$MINOR.$MICRO): $FFMPEG_VERSION"
+        fi
+    fi
+    
+    # Final fallback: use branch name to estimate version
+    if [[ -z "$FFMPEG_VERSION" ]]; then
+        case "$FFMPEG_GIT_BRANCH" in
+            "release/7.1"*) FFMPEG_VERSION="7.1" ;;
+            "release/7.0"*) FFMPEG_VERSION="7.0" ;;
+            "release/6.1"*) FFMPEG_VERSION="6.1" ;;
+            "release/6.0"*) FFMPEG_VERSION="6.0" ;;
+            "release/8.0"*) FFMPEG_VERSION="8.0" ;;
+            "master"|"main") FFMPEG_VERSION="8.0-dev" ;;
+            *) FFMPEG_VERSION="unknown" ;;
+        esac
+        echo "FFmpeg version determined from branch name: $FFMPEG_VERSION"
+    fi
 fi
+
+EXTRA_VERSION=""
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  EXTRA_VERSION="${FFMPEG_VERSION}"
+fi
+
+if [ -d "$CWD/.git" ]; then
+  echo -e "\nTemporarily moving .git dir to .git.bak to workaround ffmpeg build bug" #causing ffmpeg version number to be wrong
+  mv "$CWD/.git" "$CWD/.git.bak"
+  # if build fails below, .git will remain in the wrong place...
+fi
+
+build "ffmpeg" "$FFMPEG_VERSION"
 
 # Apply patches from private repository if specified
 if [[ -n "$PATCH_CLONE_URL" ]]; then
