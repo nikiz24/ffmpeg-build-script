@@ -1137,15 +1137,55 @@ fi
 # Apply patches from private repository if specified
 if [[ -n "$PATCH_CLONE_URL" ]]; then
     echo "Applying patches from private repository..."
-    git clone --filter=blob:none --branch="$FFMPEG_GIT_BRANCH" "$PATCH_CLONE_URL" /tmp/patches
-
-    echo "Checking for patches in /tmp/patches..."
-    ls -la /tmp/patches/
+    echo "FFmpeg branch: $FFMPEG_GIT_BRANCH"
+    echo "User specified patch branch: $GIT_BRANCH"
+    
+    # Smart branch matching: try FFmpeg branch first, then fallback
+    PATCH_BRANCH="$FFMPEG_GIT_BRANCH"
+    PATCH_REPO_TEMP="/tmp/patches"
+    
+    # First try to clone with FFmpeg branch name
+    echo "Trying to clone patch repository with branch: $PATCH_BRANCH"
+    if git clone --filter=blob:none --branch="$PATCH_BRANCH" "$PATCH_CLONE_URL" "$PATCH_REPO_TEMP" 2>/dev/null; then
+        echo "✅ Successfully cloned patch repo with FFmpeg branch: $PATCH_BRANCH"
+    else
+        echo "⚠️ FFmpeg branch '$PATCH_BRANCH' not found in patch repo, trying user specified branch: $GIT_BRANCH"
+        
+        # Try user specified branch
+        if git clone --filter=blob:none --branch="$GIT_BRANCH" "$PATCH_CLONE_URL" "$PATCH_REPO_TEMP" 2>/dev/null; then
+            echo "✅ Successfully cloned patch repo with user branch: $GIT_BRANCH"
+            PATCH_BRANCH="$GIT_BRANCH"
+        else
+            echo "⚠️ User branch '$GIT_BRANCH' not found, trying main branch"
+            
+            # Try main branch
+            if git clone --filter=blob:none --branch="main" "$PATCH_CLONE_URL" "$PATCH_REPO_TEMP" 2>/dev/null; then
+                echo "✅ Successfully cloned patch repo with main branch"
+                PATCH_BRANCH="main"
+            else
+                echo "⚠️ main branch not found, trying master branch"
+                
+                # Try master branch as last resort
+                if git clone --filter=blob:none --branch="master" "$PATCH_CLONE_URL" "$PATCH_REPO_TEMP" 2>/dev/null; then
+                    echo "✅ Successfully cloned patch repo with master branch"
+                    PATCH_BRANCH="master"
+                else
+                    echo "❌ Failed to clone patch repository with any branch (tried: $FFMPEG_GIT_BRANCH, $GIT_BRANCH, main, master)"
+                    echo "Please check if the patch repository exists and has the correct branch."
+                    exit 1
+                fi
+            fi
+        fi
+    fi
+    
+    echo "Using patch branch: $PATCH_BRANCH"
+    echo "Checking for patches in $PATCH_REPO_TEMP..."
+    ls -la "$PATCH_REPO_TEMP/"
 
     # Simple patch application
     echo "Applying patches..."
     patch_count=0
-    for patch in /tmp/patches/*.patch; do
+    for patch in "$PATCH_REPO_TEMP"/*.patch; do
         if [[ -f "$patch" ]]; then
             echo "Applying patch: $(basename "$patch")"
             git apply "$patch" || exit 1
@@ -1154,13 +1194,13 @@ if [[ -n "$PATCH_CLONE_URL" ]]; then
     done
 
     if [[ $patch_count -eq 0 ]]; then
-        echo "Error: No patch files found in /tmp/patches/*.patch"
-        exit 1
+        echo "⚠️ Warning: No patch files found in $PATCH_REPO_TEMP/*.patch"
+        echo "This is not an error - continuing with build without patches."
+    else
+        echo "✅ Successfully applied $patch_count patches from branch '$PATCH_BRANCH'"
     fi
 
-    echo "Successfully applied $patch_count patches"
-
-    rm -rf /tmp/patches
+    rm -rf "$PATCH_REPO_TEMP"
 fi
 
 # shellcheck disable=SC2086
@@ -1206,6 +1246,109 @@ else
 fi
 
 verify_binary_type
+
+# Create distribution packages automatically
+create_distribution_packages() {
+  echo "📦 Creating distribution packages..."
+  echo "===================================="
+  
+  # Extract FFmpeg version for package naming
+  FFMPEG_VERSION_OUTPUT=$("$WORKSPACE/bin/ffmpeg" -version 2>&1 | head -n 1 | sed 's/ffmpeg version //g' | awk '{print $1}')
+  echo "Raw FFmpeg version: $FFMPEG_VERSION_OUTPUT"
+  
+  # Improved version extraction logic
+  if [[ "$FFMPEG_VERSION_OUTPUT" =~ ^n?([0-9]+\.[0-9]+(\.[0-9]+)?)-?([0-9]*-)?g?([a-f0-9]+)? ]]; then
+    VERSION_NUM="${BASH_REMATCH[1]}"
+    GIT_HASH="${BASH_REMATCH[4]}"
+    if [[ -n "$GIT_HASH" && ${#GIT_HASH} -ge 7 ]]; then
+      # Take first 7 characters
+      PACKAGE_VERSION="n${VERSION_NUM}-g${GIT_HASH:0:7}"
+    else
+      PACKAGE_VERSION="n${VERSION_NUM}"
+    fi
+  else
+    # Fallback: use original version string
+    PACKAGE_VERSION="$FFMPEG_VERSION_OUTPUT"
+  fi
+  
+  echo "Package version: $PACKAGE_VERSION"
+  
+  # Determine platform and architecture
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    PLATFORM="darwin"
+    if [[ "$(uname -m)" == "arm64" ]]; then
+      ARCH="arm64"
+    else
+      ARCH="x64"
+    fi
+  else
+    PLATFORM="linux"
+    ARCH="amd64"
+  fi
+  
+  echo "Platform: $PLATFORM, Architecture: $ARCH"
+  
+  # Create package directory
+  PACKAGE_DIR="$CWD/ffmpeg-release"
+  remove_dir "$PACKAGE_DIR"
+  mkdir -p "$PACKAGE_DIR"
+  
+  # Copy binaries
+  cp "$WORKSPACE/bin/ffmpeg" "$PACKAGE_DIR/"
+  cp "$WORKSPACE/bin/ffprobe" "$PACKAGE_DIR/"
+  if [[ -f "$WORKSPACE/bin/ffplay" ]]; then
+    cp "$WORKSPACE/bin/ffplay" "$PACKAGE_DIR/"
+  fi
+  
+  # Create README with build information
+  cat > "$PACKAGE_DIR/README.txt" << EOF
+FFmpeg $PACKAGE_VERSION for $PLATFORM $ARCH
+
+Platform: $PLATFORM
+Architecture: $ARCH
+Build date: $(date)
+FFmpeg branch: $FFMPEG_GIT_BRANCH
+Commit hash: $FFMPEG_COMMIT
+Build script version: $SCRIPT_VERSION
+
+Binaries included:
+- ffmpeg: Main FFmpeg binary
+- ffprobe: Media analysis tool
+$(if [[ -f "$PACKAGE_DIR/ffplay" ]]; then echo "- ffplay: Media player"; fi)
+
+For more information, visit:
+https://github.com/markus-perl/ffmpeg-build-script
+EOF
+  
+  # Create packages with standardized naming
+  PACKAGE_BASE_NAME="ffmpeg-${PACKAGE_VERSION}-${PLATFORM}-${ARCH}"
+  
+  echo "Creating packages: $PACKAGE_BASE_NAME"
+  
+  # Create tar.gz package
+  cd "$PACKAGE_DIR" || exit 1
+  tar -czf "$CWD/${PACKAGE_BASE_NAME}.tar.gz" *
+  
+  # Create zip package  
+  zip -r "$CWD/${PACKAGE_BASE_NAME}.zip" *
+  
+  cd "$CWD" || exit 1
+  
+  echo "✅ Successfully created distribution packages:"
+  echo "   📁 ${PACKAGE_BASE_NAME}.tar.gz ($(du -h "${PACKAGE_BASE_NAME}.tar.gz" | cut -f1))"
+  echo "   📁 ${PACKAGE_BASE_NAME}.zip ($(du -h "${PACKAGE_BASE_NAME}.zip" | cut -f1))"
+  
+  # Clean up temporary directory
+  remove_dir "$PACKAGE_DIR"
+  
+  echo "📦 Package creation completed successfully!"
+  echo ""
+}
+
+# Call package creation function (can be disabled with environment variable)
+if [[ "$SKIP_PACKAGING" != "yes" ]]; then
+  create_distribution_packages
+fi
 
 echo ""
 echo "Building done. The following binaries can be found here:"
