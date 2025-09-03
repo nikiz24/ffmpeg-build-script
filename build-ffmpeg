@@ -1160,10 +1160,7 @@ else
     fi
 fi
 
-EXTRA_VERSION=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  EXTRA_VERSION="${FFMPEG_VERSION}"
-fi
+EXTRA_VERSION="niki-$(date +%Y%m%d)"
 
 if [ -d "$CWD/.git" ]; then
   echo -e "\nTemporarily moving .git dir to .git.bak to workaround ffmpeg build bug" #causing ffmpeg version number to be wrong
