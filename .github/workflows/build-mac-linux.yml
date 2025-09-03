@@ -344,7 +344,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install automake autoconf libtool pkg-config cmake meson ninja nasm yasm openjdk 
+          brew install automake autoconf libtool pkg-config meson ninja nasm yasm openjdk 
           brew upgrade
 
       - name: Build FFmpeg
